@@ -28,16 +28,11 @@
 #pragma comment(lib, "SetupAPI")
 #pragma comment(lib, "BluetoothApis.lib")
 
-//#define LOG_ALL
-
-#if defined(LOG_ALL)
-#define Log(str) LogToFile(str)
-#else
-#define Log(str)
-#endif
+//#define LOG_TO_FILE
 
 void LogToFile(const char* message)
 {
+#if defined(LOG_TO_FILE)
 	char buf[256];
 	sprintf_s(buf, 256, "%08x:%s", GetCurrentThreadId(), message);
 	FILE* f = NULL;
@@ -49,12 +44,18 @@ void LogToFile(const char* message)
 	fprintf(f, buf);
 	fprintf(f, "\n");
 	fclose(f);
+#endif
 }
 
-static DebugCallback debugLogCallback = NULL;
-static DebugCallback debugWarningCallback = NULL;
-static DebugCallback debugErrorCallback = NULL;
-static SendBluetoothMessageCallback sendMessageCallback = NULL;
+void LogToFile(const std::string& message)
+{
+	LogToFile(message.data());
+}
+
+static DebugCallback debugLogCallback = nullptr;
+static DebugCallback debugWarningCallback = nullptr;
+static DebugCallback debugErrorCallback = nullptr;
+static SendBluetoothMessageCallback sendMessageCallback = nullptr;
 
 struct BLEDeviceInfo
 {
@@ -91,13 +92,14 @@ std::vector<BLEServiceInfo*> services;
 std::vector<BLEConnectedServiceInfo*> connectedServices;
 std::vector<BLERegisteredCharacteristicInfo*> registeredCharacteristics;
 
-enum QueuedMessageType
+enum class QueuedMessageType
 {
-	QueuedMessageType_Message = 0,
-	QueuedMessageType_Log,
-	QueuedMessageType_Warning,
-	QueuedMessageType_Error,
+	Message = 0,
+	Log,
+	Warning,
+	Error,
 };
+
 struct QueuedMessage
 {
 	QueuedMessageType messageType;
@@ -121,12 +123,11 @@ void _winBluetoothLEConnectCallbacks(SendBluetoothMessageCallback sendMessageMet
 
 void _winBluetoothLEDisconnectCallbacks()
 {
-	sendMessageCallback = NULL;
-	debugLogCallback = NULL;
-	debugWarningCallback = NULL;
-	debugErrorCallback = NULL;
+	sendMessageCallback = nullptr;
+	debugLogCallback = nullptr;
+	debugWarningCallback = nullptr;
+	debugErrorCallback = nullptr;
 }
-
 
 // --------------------------------------------------------------------------
 // Talks back to the mono side of things!
@@ -134,8 +135,12 @@ void _winBluetoothLEDisconnectCallbacks()
 void SendBluetoothMessage(const char* message)
 {
 	messageMutex.lock();
-	messages.push_back({ QueuedMessageType_Message, std::string(message) });
+	messages.push_back({ QueuedMessageType::Message, std::string(message) });
 	messageMutex.unlock();
+}
+inline void SendBluetoothMessage(const std::string& message)
+{
+	SendBluetoothMessage(message.data());
 }
 
 // --------------------------------------------------------------------------
@@ -144,8 +149,12 @@ void SendBluetoothMessage(const char* message)
 void DebugLog(const char* message)
 {
 	messageMutex.lock();
-	messages.push_back({ QueuedMessageType_Log, std::string(message) });
+	messages.push_back({ QueuedMessageType::Log, std::string(message) });
 	messageMutex.unlock();
+}
+inline void DebugLog(const std::string& message)
+{
+	DebugLog(message.data());
 }
 
 // --------------------------------------------------------------------------
@@ -154,8 +163,12 @@ void DebugLog(const char* message)
 void DebugWarning(const char* message)
 {
 	messageMutex.lock();
-	messages.push_back({ QueuedMessageType_Warning, std::string(message) });
+	messages.push_back({ QueuedMessageType::Warning, std::string(message) });
 	messageMutex.unlock();
+}
+inline void DebugWarning(const std::string& message)
+{
+	DebugWarning(message.data());
 }
 
 // --------------------------------------------------------------------------
@@ -164,16 +177,35 @@ void DebugWarning(const char* message)
 void DebugError(const char* message)
 {
 	messageMutex.lock();
-	messages.push_back({ QueuedMessageType_Error, std::string(message) });
+	messages.push_back({ QueuedMessageType::Error, std::string(message) });
 	messageMutex.unlock();
 }
+inline void DebugError(const std::string& message)
+{
+	DebugError(message.data());
+}
 
+// --------------------------------------------------------------------------
+// Sends a bluetooth error message
+// --------------------------------------------------------------------------
 void SendError(const char* message)
 {
 	std::string errorMessage = "Error~";
 	errorMessage.append(message);
-	SendBluetoothMessage(errorMessage.c_str());
+	SendBluetoothMessage(errorMessage);
 	DebugError(message);
+}
+inline void SendError(const std::string& message)
+{
+	SendError(message.data());
+}
+
+// --------------------------------------------------------------------------
+// Sends a BLT out of memory error message
+// --------------------------------------------------------------------------
+void SendOutOfMemoryError(int size)
+{
+	SendError(std::string("Failed to allocate ").append(std::to_string(size)).append(" bytes of memory."));
 }
 
 // --------------------------------------------------------------------------
@@ -181,33 +213,33 @@ void SendError(const char* message)
 // --------------------------------------------------------------------------
 std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DWORD property)
 {
-	DWORD DataT3;
-	LPTSTR buffer3 = NULL;
-	DWORD buffersize3 = 0;
-	while (!SetupDiGetDeviceRegistryProperty(hDevInfo, pDeviceInfoData, property, &DataT3, (PBYTE)buffer3, buffersize3, &buffersize3))
+	DWORD regDataType;
+	LPTSTR buffer = nullptr;
+	DWORD buffersSize = 0;
+	while (!SetupDiGetDeviceRegistryProperty(hDevInfo, pDeviceInfoData, property, &regDataType, (PBYTE)buffer, buffersSize, &buffersSize))
 	{
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
 		{
 			// Change the buffer size.
-			if (buffer3) delete(buffer3);
+			delete buffer;
 			// Double the size to avoid problems on
 			// W2k MBCS systems per KB 888609.
-			buffer3 = new wchar_t[buffersize3 * 2];
+			buffer = new wchar_t[buffersSize * 2];
 		}
 		else
 		{
 			wchar_t buf[256];
 			FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, 256, NULL);
-			SendError(std::string("Could not read device property: ").append(BLEUtils::ToNarrow(buf)).c_str());
+			SendError(std::string("Could not read device property: ").append(BLEUtils::ToNarrow(buf)));
 			break;
 		}
 	}
 
 	std::string prop = "";
-	if (buffersize3 > 0)
+	if (buffer != nullptr)
 	{
-		prop = BLEUtils::ToNarrow(buffer3);
-		delete(buffer3);
+		prop = BLEUtils::ToNarrow(buffer);
+		delete buffer;
 	}
 	return prop;
 }
@@ -217,29 +249,29 @@ std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DW
 // --------------------------------------------------------------------------
 std::string ReadDeviceInstanceId(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData)
 {
-	LPTSTR deviceIdBuffer = NULL;
+	LPTSTR deviceIdBuffer = nullptr;
 	DWORD deviceIdBufferSize = 0;
 
 	while (!SetupDiGetDeviceInstanceId(hDevInfo, pDeviceInfoData, deviceIdBuffer, deviceIdBufferSize, &deviceIdBufferSize))
 	{
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
 		{
-			if (deviceIdBuffer) delete(deviceIdBuffer);
+			delete deviceIdBuffer;
 			deviceIdBuffer = new wchar_t[deviceIdBufferSize * 2];
 		}
 		else
 		{
 			wchar_t buf[256];
 			FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, 256, NULL);
-			SendError(std::string("Could not read device instance Id: ").append(BLEUtils::ToNarrow(buf)).c_str());
+			SendError(std::string("Could not read device instance Id: ").append(BLEUtils::ToNarrow(buf)));
 			break;
 		}
 	}
 	std::string id = "<no_id>";
-	if (deviceIdBufferSize > 0)
+	if (deviceIdBuffer != nullptr)
 	{
 		id = BLEUtils::ToNarrow(deviceIdBuffer);
-		delete(deviceIdBuffer);
+		delete deviceIdBuffer;
 	}
 	return id;
 }
@@ -255,23 +287,36 @@ std::string ReadDeviceInterfaceDetails(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDevi
 	{
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
 		{
-			pInterfaceDetailData = (PSP_DEVICE_INTERFACE_DETAIL_DATA)GlobalAlloc(GPTR, size);
-			pInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+			free(pInterfaceDetailData);
+			pInterfaceDetailData = (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(size);
+			if (pInterfaceDetailData != nullptr)
+			{
+				RtlZeroMemory(pInterfaceDetailData, size);
+				pInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+			}
+			else
+			{
+				SendOutOfMemoryError(size);
+				break;
+			}
 		}
 		else
 		{
+			free(pInterfaceDetailData);
+			pInterfaceDetailData = nullptr;
+
 			wchar_t buf[256];
 			FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, 256, NULL);
-			SendError(std::string("Could not read device interface details: ").append(BLEUtils::ToNarrow(buf)).c_str());
+			SendError(std::string("Could not read device interface details: ").append(BLEUtils::ToNarrow(buf)));
 			break;
 		}
 	}
 
 	std::string ret = "<no path>";
-	if (pInterfaceDetailData != NULL)
+	if (pInterfaceDetailData != nullptr)
 	{
 		ret = BLEUtils::ToNarrow(pInterfaceDetailData->DevicePath);
-		GlobalFree(pInterfaceDetailData);
+		free(pInterfaceDetailData);
 	}
 
 	return ret;
@@ -292,7 +337,7 @@ bool ScanBLEInterfaces()
 	{
 		wchar_t buf[256];
 		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, 256, NULL);
-		SendError(std::string("Could not request bluetooth device list: ").append(BLEUtils::ToNarrow(buf)).c_str());
+		SendError(std::string("Could not request bluetooth device list: ").append(BLEUtils::ToNarrow(buf)));
 		return false;
 	}
 
@@ -330,7 +375,7 @@ bool ScanBLEInterfaces()
 
 		if (isService)
 		{
-			// Fetch the guid!
+			// Fetch the GUID!
 			std::regex guidRegex("\\{.*\\}");
 			std::smatch match;
 			if (std::regex_search(hardwareId, match, guidRegex))
@@ -368,7 +413,7 @@ bool ScanBLEInterfaces()
 			}
 			else
 			{
-				SendError(std::string("Could not extract service GUID from the hardware ID \'").append(hardwareId).append("\'").c_str());
+				SendError(std::string("Could not extract service GUID from the hardware ID \'").append(hardwareId).append("\'"));
 			}
 		}
 	}
@@ -383,7 +428,7 @@ bool ScanBLEInterfaces()
 		}
 		else
 		{
-			SendError(std::string("Could not find the device that service ").append(BLEUtils::BTHLEGUIDToString(service->id)).append(" belongs to").c_str());
+			SendError(std::string("Could not find the device that service ").append(BLEUtils::BTHLEGUIDToString(service->id)).append(" belongs to"));
 		}
 	}
 
@@ -393,20 +438,20 @@ bool ScanBLEInterfaces()
 }
 
 // --------------------------------------------------------------------------
-// Iterates over all devices and sends notifications back for each one that matches the uuids passed in
+// Iterates over all devices and sends notifications back for each one that matches the UUIDs passed in
 // --------------------------------------------------------------------------
 void notifyDevicesWithServices(const std::vector<BTH_LE_UUID>& uuids)
 {
 	std::vector<GUID> returnedDevices;
-	// Find any device that has a service whose uuid matches one of the uuids passed in!
+	// Find any device that has a service whose UUID matches one of the UUIDs passed in!
 	for (auto service : services)
 	{
 		auto prev = std::find_if(connectedServices.begin(), connectedServices.end(), [service](const BLEConnectedServiceInfo* x) { return x->service == service; });
 		if (prev == connectedServices.end())
 		{
 			// Not already connected, good!
-			// Does this service match the uuid?
 			if (std::find(uuids.begin(), uuids.end(), service->id) != uuids.end())
+			// Does this service match the UUID?
 			{
 				// Yes, send a message for each discovered peripheral
 				// Sadly we don't have access to advertisement data, it is managed by Windows!
@@ -414,7 +459,7 @@ void notifyDevicesWithServices(const std::vector<BTH_LE_UUID>& uuids)
 				deviceDiscoveredMessage.append(BLEUtils::GUIDToString(service->device->containerId));
 				deviceDiscoveredMessage.append("~");
 				deviceDiscoveredMessage.append(service->device->deviceName);
-				SendBluetoothMessage(deviceDiscoveredMessage.c_str());
+				SendBluetoothMessage(deviceDiscoveredMessage);
 			}
 		}
 	}
@@ -425,7 +470,7 @@ void notifyDevicesWithServices(const std::vector<BTH_LE_UUID>& uuids)
 // --------------------------------------------------------------------------
 void notifyAllDevices()
 {
-	// Find any device that has a service whose uuid matches one of the uuids passed in!
+	// Find any device that has a service whose UUID matches one of the UUIDs passed in!
 	for (auto device : devices)
 	{
 		// Send a message for each discovered peripheral
@@ -434,26 +479,26 @@ void notifyAllDevices()
 		deviceDiscoveredMessage.append(BLEUtils::GUIDToString(device->containerId));
 		deviceDiscoveredMessage.append("~");
 		deviceDiscoveredMessage.append(device->deviceName);
-		SendBluetoothMessage(deviceDiscoveredMessage.c_str());
+		SendBluetoothMessage(deviceDiscoveredMessage);
 	}
 }
 
 // --------------------------------------------------------------------------
-// Iterates over all connected devices and sends notifications back for each one that matches the uuids passed in
+// Iterates over all connected devices and sends notifications back for each one that matches the UUIDs passed in
 // --------------------------------------------------------------------------
 void notifyConnectedServices(const std::vector<BTH_LE_UUID>& uuids)
 {
 	// Send messages for all the ones
 	for (auto service : connectedServices)
 	{
-		// Find any service that has a service whose uuid matches one of the uuids passed in!
+		// Find any service that has a service whose UUID matches one of the UUIDs passed in!
 		if (std::find_if(uuids.begin(), uuids.end(), [&service](const BTH_LE_UUID& uuid) { return service->service->id == uuid; }) != uuids.end())
 		{
 			std::string deviceDiscoveredMessage = "RetrievedConnectedPeripheral~";
 			deviceDiscoveredMessage.append(BLEUtils::GUIDToString(service->service->device->containerId));
 			deviceDiscoveredMessage.append("~");
 			deviceDiscoveredMessage.append(service->service->device->deviceName);
-			SendBluetoothMessage(deviceDiscoveredMessage.c_str());
+			SendBluetoothMessage(deviceDiscoveredMessage);
 		}
 	}
 }
@@ -471,7 +516,7 @@ void notifyAllConnected()
 		connectedDeviceRetrievedMessage.append(BLEUtils::GUIDToString(service->service->device->containerId));
 		connectedDeviceRetrievedMessage.append("~");
 		connectedDeviceRetrievedMessage.append(service->service->device->deviceName);
-		SendBluetoothMessage(connectedDeviceRetrievedMessage.c_str());
+		SendBluetoothMessage(connectedDeviceRetrievedMessage);
 	}
 }
 
@@ -489,23 +534,24 @@ bool GetGATTService(HANDLE serviceHandle, BTH_LE_GATT_SERVICE& outService)
 		if (hr == HRESULT_FROM_WIN32(ERROR_MORE_DATA))
 		{
 			// Change the buffer size.
+			delete[] services;
 			services = new BTH_LE_GATT_SERVICE[serviceCount];
 		}
 		else
 		{
 			_com_error err(hr);
-			SendError(std::string("Could not retrieve service GATT info: ").append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+			SendError(std::string("Could not retrieve service GATT info: ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 			break;
 		}
 	}
 
-	bool ret = hr == S_OK && serviceCount > 0;
+	bool ret = hr == S_OK && serviceCount > 0 && services != nullptr;
 	if (ret)
 	{
 		// Only grab the first service!
 		outService = services[0];
-		delete[] services;
 	}
+	delete[] services;
 	return ret;
 }
 
@@ -531,7 +577,7 @@ std::vector<BTH_LE_GATT_CHARACTERISTIC> GetGATTCharacteristics(HANDLE serviceHan
 		else
 		{
 			_com_error err(hr);
-			SendError(std::string("Could not retrieve service characteristics: ").append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+			SendError(std::string("Could not retrieve service characteristics: ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 			break;
 		}
 	}
@@ -543,35 +589,46 @@ std::vector<BTH_LE_GATT_CHARACTERISTIC> GetGATTCharacteristics(HANDLE serviceHan
 // --------------------------------------------------------------------------
 PBTH_LE_GATT_CHARACTERISTIC_VALUE AllocAndReadCharacteristic(HANDLE serviceHandle, BTH_LE_GATT_CHARACTERISTIC* currGattChar)
 {
+	PBTH_LE_GATT_CHARACTERISTIC_VALUE pCharValueBuffer = nullptr;
+	
 	if (currGattChar->IsReadable)
 	{
 		// Determine Characteristic Value Buffer Size
 		USHORT charValueDataSize = 0;
-		PBTH_LE_GATT_CHARACTERISTIC_VALUE pCharValueBuffer = nullptr;
 		HRESULT hr = S_OK;
 		while ((hr = BluetoothGATTGetCharacteristicValue(serviceHandle, currGattChar, (ULONG)charValueDataSize, pCharValueBuffer, &charValueDataSize, BLUETOOTH_GATT_FLAG_NONE)) != S_OK)
 		{
 			if (hr == HRESULT_FROM_WIN32(ERROR_MORE_DATA))
 			{
+				free(pCharValueBuffer);
 				pCharValueBuffer = (PBTH_LE_GATT_CHARACTERISTIC_VALUE)malloc(charValueDataSize);
-				RtlZeroMemory(pCharValueBuffer, charValueDataSize);
-				pCharValueBuffer->DataSize = charValueDataSize;
+				if (pCharValueBuffer != nullptr)
+				{
+					RtlZeroMemory(pCharValueBuffer, charValueDataSize);
+					pCharValueBuffer->DataSize = charValueDataSize;
+				}
+				else
+				{
+					SendOutOfMemoryError(charValueDataSize);
+					break;
+				}
 			}
 			else
 			{
+				free(pCharValueBuffer);
+				pCharValueBuffer = nullptr;
+
 				_com_error err(hr);
-				SendError(std::string("Could not get characteristic ").append(BLEUtils::BTHLEGUIDToString(currGattChar->CharacteristicUuid)).append(" value: ").append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
-				return nullptr;
+				SendError(std::string("Could not get characteristic ").append(BLEUtils::BTHLEGUIDToString(currGattChar->CharacteristicUuid)).append(" value: ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 			}
 		}
-
-		return pCharValueBuffer;
 	}
 	else
 	{
-		SendError(std::string("Characteristic ").append(BLEUtils::BTHLEGUIDToString(currGattChar->CharacteristicUuid)).append(" is not readable.").c_str());
-		return nullptr;
+		SendError(std::string("Characteristic ").append(BLEUtils::BTHLEGUIDToString(currGattChar->CharacteristicUuid)).append(" is not readable."));
 	}
+
+	return pCharValueBuffer;
 }
 
 // --------------------------------------------------------------------------
@@ -602,7 +659,7 @@ bool DisconnectServicesForDevice(GUID addressGUID)
 						registerCharacteristicMessage.append(BLEUtils::BTHLEGUIDToString(cservice->service->id));
 						registerCharacteristicMessage.append("~");
 						registerCharacteristicMessage.append(BLEUtils::BTHLEGUIDToString(charInfo->characteristic.CharacteristicUuid));
-						SendBluetoothMessage(registerCharacteristicMessage.c_str());
+						SendBluetoothMessage(registerCharacteristicMessage);
 
 						// Clean up
 						delete charInfo;
@@ -611,7 +668,7 @@ bool DisconnectServicesForDevice(GUID addressGUID)
 					else
 					{
 						_com_error err(hr);
-						SendError(std::string("Could not unregister from characteristic ").append(BLEUtils::GUIDToString(addressGUID)).append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+						SendError(std::string("Could not unregister from characteristic ").append(BLEUtils::GUIDToString(addressGUID)).append(BLEUtils::ToNarrow(err.ErrorMessage())));
 						// Next element!
 						++charIt;
 					}
@@ -631,7 +688,7 @@ bool DisconnectServicesForDevice(GUID addressGUID)
 			}
 			else
 			{
-				SendError(std::string("Could not close handle to device ").append(BLEUtils::GUIDToString(addressGUID)).c_str());
+				SendError(std::string("Could not close handle to device ").append(BLEUtils::GUIDToString(addressGUID)));
 
 			}
 		}
@@ -665,7 +722,7 @@ std::vector<BTH_LE_GATT_DESCRIPTOR> GetGATTDescriptors(HANDLE serviceHandle, PBT
 		else
 		{
 			_com_error err(hr);
-			SendError(std::string("Could not retrieve characteristic descriptors: ").append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+			SendError(std::string("Could not retrieve characteristic descriptors: ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 			break;
 		}
 	}
@@ -685,22 +742,32 @@ PBTH_LE_GATT_DESCRIPTOR_VALUE AllocAndReadDescriptor(HANDLE serviceHandle, PBTH_
 	{
 		if (hr == HRESULT_FROM_WIN32(ERROR_MORE_DATA))
 		{
+			free(pDescValueBuffer);
 			pDescValueBuffer = (PBTH_LE_GATT_DESCRIPTOR_VALUE)malloc(descValueDataSize);
-			RtlZeroMemory(pDescValueBuffer, descValueDataSize);
-			pDescValueBuffer->DataSize = descValueDataSize;
+			if (pDescValueBuffer != nullptr)
+			{
+				RtlZeroMemory(pDescValueBuffer, descValueDataSize);
+				pDescValueBuffer->DataSize = descValueDataSize;
+			}
+			else
+			{
+				SendOutOfMemoryError(descValueDataSize);
+				break;
+			}
 		}
 		else
 		{
+			free(pDescValueBuffer);
+			pDescValueBuffer = nullptr;
+
 			_com_error err(hr);
-			SendError(std::string("Could not get descriptor value ").append(BLEUtils::BTHLEGUIDToString(descriptor->DescriptorUuid)).append(" value: ").append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
-			return nullptr;
+			SendError(std::string("Could not get descriptor value ").append(BLEUtils::BTHLEGUIDToString(descriptor->DescriptorUuid)).append(" value: ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
+			break;
 		}
 	}
 
 	return pDescValueBuffer;
 }
-
-
 
 // --------------------------------------------------------------------------
 // Logs some info from the mono side
@@ -724,7 +791,7 @@ void _winBluetoothLEInitialize(bool asCentral, bool asPeripheral)
 void _winBluetoothLEDeInitialize()
 {
 	_winBluetoothLEDisconnectAll();
-	Log("Deinitialized");
+	LogToFile("DeInitialized");
 	if (sendMessageCallback != NULL)
 	{
 		sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", "DeInitialized");
@@ -813,7 +880,7 @@ void _winBluetoothLEConnectToPeripheral(const char* address)
 			if (service->containerId == addressGUID)
 			{
 				// Open a handle to the peripheral, and scan the services and characteristics
-				HANDLE serviceHandle = CreateFile(BLEUtils::ToWide(service->path.c_str()).c_str(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+				HANDLE serviceHandle = CreateFile(BLEUtils::ToWide(service->path.data()).data(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 				if (serviceHandle != INVALID_HANDLE_VALUE)
 				{
 					// Remember we connected to the device, so we can clean up later!
@@ -828,22 +895,22 @@ void _winBluetoothLEConnectToPeripheral(const char* address)
 						firstService = false;
 						std::string connectedMessage = "ConnectedPeripheral~";
 						connectedMessage.append(address);
-						SendBluetoothMessage(connectedMessage.c_str());
+						SendBluetoothMessage(connectedMessage);
 					}
 
 					// Get GATT service ids and characteristics
 					if (GetGATTService(serviceHandle, connInfo->gattService))
 					{
-						// Check that the gatt service ID matches the service ID
+						// Check that the GATT service ID matches the service ID
 						auto gattServiceUuidString = BLEUtils::BTHLEGUIDToString(connInfo->gattService.ServiceUuid);
 						if (connInfo->gattService.ServiceUuid == service->id)
 						{
-							// Notify that we indeed got the gatt service info!
+							// Notify that we indeed got the GATT service info!
 							std::string discoveredServiceMessage = "DiscoveredService~";
 							discoveredServiceMessage.append(address);
 							discoveredServiceMessage.append("~");
 							discoveredServiceMessage.append(gattServiceUuidString);
-							SendBluetoothMessage(discoveredServiceMessage.c_str());
+							SendBluetoothMessage(discoveredServiceMessage);
 
 							// Scan characteristics now!
 							connInfo->characteristics = GetGATTCharacteristics(serviceHandle, connInfo->gattService);
@@ -860,17 +927,17 @@ void _winBluetoothLEConnectToPeripheral(const char* address)
 									discoveredCharacteristicMessage.append(gattServiceUuidString);
 									discoveredCharacteristicMessage.append("~");
 									discoveredCharacteristicMessage.append(gattCharacteristicUuidString);
-									SendBluetoothMessage(discoveredCharacteristicMessage.c_str());
+									SendBluetoothMessage(discoveredCharacteristicMessage);
 								}
 							}
 							else
 							{
-								SendError(std::string("Device ").append(address).append(" reported 0 characteristics.").c_str());
+								SendError(std::string("Device ").append(address).append(" reported 0 characteristics."));
 							}
 						}
 						else
 						{
-							SendError(std::string("GATT service id ").append(gattServiceUuidString).append(" does not match service id ").append(BLEUtils::BTHLEGUIDToString(service->id)).c_str());
+							SendError(std::string("GATT service id ").append(gattServiceUuidString).append(" does not match service id ").append(BLEUtils::BTHLEGUIDToString(service->id)));
 						}
 					}
 
@@ -882,12 +949,12 @@ void _winBluetoothLEConnectToPeripheral(const char* address)
 
 		if (firstService)
 		{
-			SendError(std::string("Did not find any service for device ").append(address).c_str());
+			SendError(std::string("Did not find any service for device ").append(address));
 		}
 	}
 	else
 	{
-		SendError(std::string("Can't connect to Null device address").c_str());
+		SendError(std::string("Can't connect to Null device address"));
 	}
 }
 
@@ -905,12 +972,12 @@ void _winBluetoothLEDisconnectPeripheral(const char* address)
 			// Notify that we disconnected to a service!
 			std::string connectedMessage = "DisconnectedPeripheral~";
 			connectedMessage.append(BLEUtils::GUIDToString(addressGUID));
-			SendBluetoothMessage(connectedMessage.c_str());
+			SendBluetoothMessage(connectedMessage);
 		}
 	}
 	else
 	{
-		SendError(std::string("Can't connect to Null device address").c_str());
+		SendError(std::string("Can't connect to Null device address"));
 	}
 }
 
@@ -959,7 +1026,7 @@ void _winBluetoothLEReadCharacteristic(const char* address, const char* service,
 				readCharacteristicMessage.append(characteristic);
 				readCharacteristicMessage.append("~");
 				readCharacteristicMessage.append(BLEUtils::Base64Encode(charVal->Data,charVal->DataSize));
-				SendBluetoothMessage(readCharacteristicMessage.c_str());
+				SendBluetoothMessage(readCharacteristicMessage);
 
 				// Clean up!
 				free(charVal);
@@ -967,12 +1034,12 @@ void _winBluetoothLEReadCharacteristic(const char* address, const char* service,
 		}
 		else
 		{
-			SendError(std::string("Could not find characteristic ").append(characteristic).append(" to read.").c_str());
+			SendError(std::string("Could not find characteristic ").append(characteristic).append(" to read."));
 		}
 	}
 	else
 	{
-		SendError(std::string("Could not find device ").append(address).append(" to read from.").c_str());
+		SendError(std::string("Could not find device ").append(address).append(" to read from."));
 	}
 }
 
@@ -1021,31 +1088,38 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 		{
 			ULONG charValueSize = length + sizeof(ULONG);
 			PBTH_LE_GATT_CHARACTERISTIC_VALUE newCharVal = (PBTH_LE_GATT_CHARACTERISTIC_VALUE)malloc(charValueSize);
-			RtlZeroMemory(newCharVal, charValueSize);
-			newCharVal->DataSize = length;
-			memcpy(newCharVal->Data, data, length);
-
-			ULONG flags = BLUETOOTH_GATT_FLAG_NONE;
-			if (withResponse)
-				BLUETOOTH_GATT_FLAG_WRITE_WITHOUT_RESPONSE;
-			HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, flags);
-			if (hr != S_OK)
+			if (newCharVal != nullptr)
 			{
-				_com_error err(hr);
-				SendError(std::string("Could not fetch characteristic value for ").append(characteristic).append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
-			}
+				RtlZeroMemory(newCharVal, charValueSize);
+				newCharVal->DataSize = length;
+				memcpy(newCharVal->Data, data, length);
 
-			// Clean up!
-			free(newCharVal);
+				ULONG flags = BLUETOOTH_GATT_FLAG_NONE;
+				if (withResponse)
+					BLUETOOTH_GATT_FLAG_WRITE_WITHOUT_RESPONSE;
+				HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, flags);
+				if (hr != S_OK)
+				{
+					_com_error err(hr);
+					SendError(std::string("Could not fetch characteristic value for ").append(characteristic).append(BLEUtils::ToNarrow(err.ErrorMessage())));
+				}
+
+				// Clean up!
+				free(newCharVal);
+			}
+			else
+			{
+				SendOutOfMemoryError(charValueSize);
+			}
 		}
 		else
 		{
-			SendError(std::string("Could not find characteristic ").append(characteristic).append(" to write.").c_str());
+			SendError(std::string("Could not find characteristic ").append(characteristic).append(" to write."));
 		}
 	}
 	else
 	{
-		SendError(std::string("Could not find device ").append(address).append(" to write to.").c_str());
+		SendError(std::string("Could not find device ").append(address).append(" to write to."));
 	}
 }
 
@@ -1060,7 +1134,7 @@ void CALLBACK HandleBLENotification(BTH_LE_GATT_EVENT_TYPE EventType, PVOID Even
 	//// Notify that we got characteristic info
 	//std::string wroteCharacteristicMessage = "DidWriteCharacteristic~";
 	//wroteCharacteristicMessage.append(characteristic);
-	//SendBluetoothMessage(wroteCharacteristicMessage.c_str());
+	//SendBluetoothMessage(wroteCharacteristicMessage);
 
 
 	// Find the characteristic
@@ -1075,11 +1149,11 @@ void CALLBACK HandleBLENotification(BTH_LE_GATT_EVENT_TYPE EventType, PVOID Even
 		readCharacteristicMessage.append(BLEUtils::BTHLEGUIDToString(charInfo->characteristic.CharacteristicUuid));
 		readCharacteristicMessage.append("~");
 		readCharacteristicMessage.append(BLEUtils::Base64Encode(ValueChangedEventParameters->CharacteristicValue->Data, (unsigned int)ValueChangedEventParameters->CharacteristicValueDataSize));
-		SendBluetoothMessage(readCharacteristicMessage.c_str());
+		SendBluetoothMessage(readCharacteristicMessage);
 	}
 	else
 	{
-		SendError(std::string("Received BLE notification for characteristic ").append(BLEUtils::BTHLEGUIDToString(charInfo->characteristic.CharacteristicUuid)).append(" which we did not register with.").c_str());
+		SendError(std::string("Received BLE notification for characteristic ").append(BLEUtils::BTHLEGUIDToString(charInfo->characteristic.CharacteristicUuid)).append(" which we did not register with."));
 	}
 }
 
@@ -1167,39 +1241,39 @@ void _winBluetoothLESubscribeCharacteristic(const char* address, const char* ser
 							registerCharacteristicMessage.append(address);
 							registerCharacteristicMessage.append("~");
 							registerCharacteristicMessage.append(characteristic);
-							SendBluetoothMessage(registerCharacteristicMessage.c_str());
+							SendBluetoothMessage(registerCharacteristicMessage);
 						}
 						else
 						{
 							delete charInfo;
 							_com_error err(hr);
-							SendError(std::string("Could not register with characteristic ").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+							SendError(std::string("Could not register with characteristic ").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())));
 						}
 					}
 					else
 					{
 						_com_error err(hr);
-						SendError(std::string("Could not set Client Config descriptor value for characteristic ").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+						SendError(std::string("Could not set Client Config descriptor value for characteristic ").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())));
 					}
 				}
 				else
 				{
-					SendError(std::string("Could not find Client Config descriptor for characteristic ").append(characteristic).c_str());
+					SendError(std::string("Could not find Client Config descriptor for characteristic ").append(characteristic));
 				}
 			}
 			else
 			{
-				SendError(std::string("Characteristic ").append(characteristic).append(" is not Notifiable.").c_str());
+				SendError(std::string("Characteristic ").append(characteristic).append(" is not Notifiable."));
 			}
 		}
 		else
 		{
-			SendError(std::string("Could not find characteristic ").append(characteristic).append(" to subscribe to.").c_str());
+			SendError(std::string("Could not find characteristic ").append(characteristic).append(" to subscribe to."));
 		}
 	}
 	else
 	{
-		SendError(std::string("Could not find device ").append(address).append(" to subscribe to.").c_str());
+		SendError(std::string("Could not find device ").append(address).append(" to subscribe to."));
 	}
 }
 
@@ -1257,17 +1331,17 @@ void _winBluetoothLEUnSubscribeCharacteristic(const char* address, const char* s
 			registerCharacteristicMessage.append(address);
 			registerCharacteristicMessage.append("~");
 			registerCharacteristicMessage.append(characteristic);
-			SendBluetoothMessage(registerCharacteristicMessage.c_str());
+			SendBluetoothMessage(registerCharacteristicMessage);
 		}
 		else
 		{
 			_com_error err(hr);
-			SendError(std::string("Could not unregister from characteristic event").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())).c_str());
+			SendError(std::string("Could not unregister from characteristic event").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())));
 		}
 	}
 	else
 	{
-		SendError(std::string("Could not find notification registration data for characteristic ").append(characteristic).c_str());
+		SendError(std::string("Could not find notification registration data for characteristic ").append(characteristic));
 	}
 }
 
@@ -1284,7 +1358,7 @@ void _winBluetoothLEDisconnectAll()
 			// Notify that we disconnected to a service!
 			std::string connectedMessage = "DisconnectedPeripheral~";
 			connectedMessage.append(BLEUtils::GUIDToString(device->containerId));
-			SendBluetoothMessage(connectedMessage.c_str());
+			SendBluetoothMessage(connectedMessage);
 		}
 	}
 	devices.clear();
@@ -1293,13 +1367,13 @@ void _winBluetoothLEDisconnectAll()
 
 void UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInterfaces)
 {
-	Log("Plugin Load");
+	LogToFile("Plugin Load");
 }
 
 // Unity plugin unload event
 void UNITY_INTERFACE_API UnityPluginUnload()
 {
-	Log("Plugin Unload");
+	LogToFile("Plugin Unload");
 	_winBluetoothLEDeInitialize();
 }
 
@@ -1308,22 +1382,22 @@ BOOL WINAPI DllMain(_In_ HINSTANCE hinstDLL, _In_ DWORD fdwReason, _In_ LPVOID l
 	switch (fdwReason)
 	{
 	case DLL_PROCESS_ATTACH:
-		Log("DLL_PROCESS_ATTACH");
+		LogToFile("DLL_PROCESS_ATTACH");
 		break;
 	case DLL_PROCESS_DETACH:
-		Log("DLL_PROCESS_DETACH");
+		LogToFile("DLL_PROCESS_DETACH");
 		_winBluetoothLEDeInitialize();
 		break;
 	case DLL_THREAD_ATTACH:
-		Log("DLL_THREAD_ATTACH");
+		LogToFile("DLL_THREAD_ATTACH");
 		break;
 	case DLL_THREAD_DETACH:
-		Log("DLL_THREAD_DETACH");
+		LogToFile("DLL_THREAD_DETACH");
 		break;
 	default:
 		char buf[256];
 		sprintf_s(buf, 256, "Other: %d", fdwReason);
-		Log(buf);
+		LogToFile(buf);
 		break;
 	}
 	return TRUE;
@@ -1333,7 +1407,8 @@ void _winBluetoothLEUpdate()
 {
 	std::vector<QueuedMessage> msgCopy;
 	messageMutex.lock();
-	for (auto msg : messages) {
+	for (auto& msg : messages)
+	{
 		msgCopy.push_back(msg);
 	}
 	messages.clear();
@@ -1341,32 +1416,32 @@ void _winBluetoothLEUpdate()
 	for (auto msg : msgCopy) {
 		switch (msg.messageType)
 		{
-		case QueuedMessageType_Message:
-			Log(msg.message.c_str());
-			if (sendMessageCallback != NULL)
+		case QueuedMessageType::Message:
+			LogToFile("Message> " + msg.message);
+			if (sendMessageCallback != nullptr)
 			{
-				sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", msg.message.c_str());
+				sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", msg.message.data());
 			}
 			break;
-		case QueuedMessageType_Log:
-			Log(msg.message.c_str());
-			if (debugLogCallback != NULL)
+		case QueuedMessageType::Log:
+			LogToFile("Log> " + msg.message);
+			if (debugLogCallback != nullptr)
 			{
-				debugLogCallback(msg.message.c_str());
+				debugLogCallback(msg.message.data());
 			}
 			break;
-		case QueuedMessageType_Warning:
-			Log(msg.message.c_str());
-			if (debugLogCallback != NULL)
+		case QueuedMessageType::Warning:
+			LogToFile("Warning> " + msg.message);
+			if (debugWarningCallback != nullptr)
 			{
-				debugWarningCallback(msg.message.c_str());
+				debugWarningCallback(msg.message.data());
 			}
 			break;
-		case QueuedMessageType_Error:
-			Log(msg.message.c_str());
-			if (debugLogCallback != NULL)
+		case QueuedMessageType::Error:
+			LogToFile("Error> " + msg.message);
+			if (debugErrorCallback != nullptr)
 			{
-				debugErrorCallback(msg.message.c_str());
+				debugErrorCallback(msg.message.data());
 			}
 			break;
 		}

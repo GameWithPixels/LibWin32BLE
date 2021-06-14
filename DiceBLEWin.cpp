@@ -47,7 +47,7 @@ void LogToFile(const char* message)
 #endif
 }
 
-void LogToFile(const std::string& message)
+inline void LogToFile(const std::string& message)
 {
 	LogToFile(message.data());
 }
@@ -134,9 +134,8 @@ void _winBluetoothLEDisconnectCallbacks()
 // --------------------------------------------------------------------------
 void SendBluetoothMessage(const char* message)
 {
-	messageMutex.lock();
+	const std::lock_guard<std::mutex> lock{ messageMutex };
 	messages.push_back({ QueuedMessageType::Message, std::string(message) });
-	messageMutex.unlock();
 }
 inline void SendBluetoothMessage(const std::string& message)
 {
@@ -148,9 +147,8 @@ inline void SendBluetoothMessage(const std::string& message)
 // --------------------------------------------------------------------------
 void DebugLog(const char* message)
 {
-	messageMutex.lock();
+	const std::lock_guard<std::mutex> lock{ messageMutex };
 	messages.push_back({ QueuedMessageType::Log, std::string(message) });
-	messageMutex.unlock();
 }
 inline void DebugLog(const std::string& message)
 {
@@ -162,9 +160,8 @@ inline void DebugLog(const std::string& message)
 // --------------------------------------------------------------------------
 void DebugWarning(const char* message)
 {
-	messageMutex.lock();
+	const std::lock_guard<std::mutex> lock{ messageMutex };
 	messages.push_back({ QueuedMessageType::Warning, std::string(message) });
-	messageMutex.unlock();
 }
 inline void DebugWarning(const std::string& message)
 {
@@ -176,9 +173,8 @@ inline void DebugWarning(const std::string& message)
 // --------------------------------------------------------------------------
 void DebugError(const char* message)
 {
-	messageMutex.lock();
+	const std::lock_guard<std::mutex> lock{ messageMutex };
 	messages.push_back({ QueuedMessageType::Error, std::string(message) });
-	messageMutex.unlock();
 }
 inline void DebugError(const std::string& message)
 {
@@ -221,7 +217,7 @@ std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DW
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
 		{
 			// Change the buffer size.
-			delete buffer;
+			delete[] buffer;
 			// Double the size to avoid problems on
 			// W2k MBCS systems per KB 888609.
 			buffer = new wchar_t[buffersSize * 2];
@@ -239,7 +235,7 @@ std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DW
 	if (buffer != nullptr)
 	{
 		prop = BLEUtils::ToNarrow(buffer);
-		delete buffer;
+		delete[] buffer;
 	}
 	return prop;
 }
@@ -256,7 +252,7 @@ std::string ReadDeviceInstanceId(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfo
 	{
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
 		{
-			delete deviceIdBuffer;
+			delete[] deviceIdBuffer;
 			deviceIdBuffer = new wchar_t[deviceIdBufferSize * 2];
 		}
 		else
@@ -271,7 +267,7 @@ std::string ReadDeviceInstanceId(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfo
 	if (deviceIdBuffer != nullptr)
 	{
 		id = BLEUtils::ToNarrow(deviceIdBuffer);
-		delete deviceIdBuffer;
+		delete[] deviceIdBuffer;
 	}
 	return id;
 }
@@ -668,7 +664,7 @@ bool DisconnectServicesForDevice(GUID addressGUID)
 					else
 					{
 						_com_error err(hr);
-						SendError(std::string("Could not unregister from characteristic ").append(BLEUtils::GUIDToString(addressGUID)).append(BLEUtils::ToNarrow(err.ErrorMessage())));
+						SendError(std::string("Could not unregister from characteristic ").append(BLEUtils::GUIDToString(addressGUID)).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 						// Next element!
 						++charIt;
 					}
@@ -801,9 +797,9 @@ void _winBluetoothLEDeInitialize()
 	services.clear();
 	connectedServices.clear();
 	registeredCharacteristics.clear();
-	messageMutex.lock();
+
+	const std::lock_guard<std::mutex> lock{ messageMutex };
 	messages.clear();
-	messageMutex.unlock();
 }
 
 // --------------------------------------------------------------------------
@@ -916,7 +912,7 @@ void _winBluetoothLEConnectToPeripheral(const char* address)
 							connInfo->characteristics = GetGATTCharacteristics(serviceHandle, connInfo->gattService);
 							if (connInfo->characteristics.size() > 0)
 							{
-								for (auto characteristic : connInfo->characteristics)
+								for (auto& characteristic : connInfo->characteristics)
 								{
 									auto gattCharacteristicUuidString = BLEUtils::BTHLEGUIDToString(characteristic.CharacteristicUuid);
 
@@ -1101,7 +1097,7 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 				if (hr != S_OK)
 				{
 					_com_error err(hr);
-					SendError(std::string("Could not fetch characteristic value for ").append(characteristic).append(BLEUtils::ToNarrow(err.ErrorMessage())));
+					SendError(std::string("Could not fetch characteristic value for ").append(characteristic).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 				}
 
 				// Clean up!
@@ -1247,13 +1243,13 @@ void _winBluetoothLESubscribeCharacteristic(const char* address, const char* ser
 						{
 							delete charInfo;
 							_com_error err(hr);
-							SendError(std::string("Could not register with characteristic ").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())));
+							SendError(std::string("Could not register with characteristic ").append(address).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 						}
 					}
 					else
 					{
 						_com_error err(hr);
-						SendError(std::string("Could not set Client Config descriptor value for characteristic ").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())));
+						SendError(std::string("Could not set Client Config descriptor value for characteristic ").append(address).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 					}
 				}
 				else
@@ -1336,7 +1332,7 @@ void _winBluetoothLEUnSubscribeCharacteristic(const char* address, const char* s
 		else
 		{
 			_com_error err(hr);
-			SendError(std::string("Could not unregister from characteristic event").append(address).append(BLEUtils::ToNarrow(err.ErrorMessage())));
+			SendError(std::string("Could not unregister from characteristic event").append(address).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 		}
 	}
 	else
@@ -1405,15 +1401,12 @@ BOOL WINAPI DllMain(_In_ HINSTANCE hinstDLL, _In_ DWORD fdwReason, _In_ LPVOID l
 
 void _winBluetoothLEUpdate()
 {
-	std::vector<QueuedMessage> msgCopy;
+	// Copy messages
 	messageMutex.lock();
-	for (auto& msg : messages)
-	{
-		msgCopy.push_back(msg);
-	}
-	messages.clear();
+	std::vector<QueuedMessage> msgCopy{ std::move(messages) };
 	messageMutex.unlock();
-	for (auto msg : msgCopy) {
+
+	for (auto& msg : msgCopy) {
 		switch (msg.messageType)
 		{
 		case QueuedMessageType::Message:

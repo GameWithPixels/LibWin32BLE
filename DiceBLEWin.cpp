@@ -110,26 +110,6 @@ std::vector<QueuedMessage> messages;
 std::mutex messageMutex;           // mutex for critical section
 
 // --------------------------------------------------------------------------
-// Called by mono side to hook up message handlers!
-// --------------------------------------------------------------------------
-void _winBluetoothLEConnectCallbacks(SendBluetoothMessageCallback sendMessageMethod, DebugCallback logMethod, DebugCallback warningMethod, DebugCallback errorMethod)
-{
-	sendMessageCallback = sendMessageMethod;
-	debugLogCallback = logMethod;
-	debugWarningCallback = warningMethod;
-	debugErrorCallback = errorMethod;
-	DebugLog("Hooked Debug Functions");
-}
-
-void _winBluetoothLEDisconnectCallbacks()
-{
-	sendMessageCallback = nullptr;
-	debugLogCallback = nullptr;
-	debugWarningCallback = nullptr;
-	debugErrorCallback = nullptr;
-}
-
-// --------------------------------------------------------------------------
 // Talks back to the mono side of things!
 // --------------------------------------------------------------------------
 void SendBluetoothMessage(const char* message)
@@ -205,10 +185,32 @@ void SendOutOfMemoryError(int size)
 }
 
 // --------------------------------------------------------------------------
+// Called by mono side to hook up message handlers!
+// --------------------------------------------------------------------------
+void _winBluetoothLEConnectCallbacks(SendBluetoothMessageCallback sendMessageMethod, DebugCallback logMethod, DebugCallback warningMethod, DebugCallback errorMethod)
+{
+	sendMessageCallback = sendMessageMethod;
+	debugLogCallback = logMethod;
+	debugWarningCallback = warningMethod;
+	debugErrorCallback = errorMethod;
+	DebugLog("Hooked Debug Functions");
+}
+
+void _winBluetoothLEDisconnectCallbacks()
+{
+	sendMessageCallback = nullptr;
+	debugLogCallback = nullptr;
+	debugWarningCallback = nullptr;
+	debugErrorCallback = nullptr;
+}
+
+// --------------------------------------------------------------------------
 // Reads a device Property, used to retrieve device name, address, etc...
 // --------------------------------------------------------------------------
 std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DWORD property)
 {
+	DebugLog(std::string("ReadProperty: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)).append(", ").append(std::to_string(property)));
+
 	DWORD regDataType;
 	LPTSTR buffer = nullptr;
 	DWORD buffersSize = 0;

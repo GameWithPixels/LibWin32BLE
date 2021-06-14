@@ -155,9 +155,6 @@ xcopy $(OutputPath)$(TargetName).dll C:\Projects\Dice4\Central\Assets\Plugins\ /
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Text Include="ReadMe.txt" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="DiceBLEWin.h" />
     <ClInclude Include="IUnityInterface.h" />
     <ClInclude Include="stdafx.h" />

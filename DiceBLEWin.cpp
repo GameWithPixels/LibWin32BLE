@@ -247,6 +247,8 @@ std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DW
 // --------------------------------------------------------------------------
 std::string ReadDeviceInstanceId(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData)
 {
+	DebugLog(std::string("ReadDeviceInstanceId: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)));
+
 	LPTSTR deviceIdBuffer = nullptr;
 	DWORD deviceIdBufferSize = 0;
 
@@ -279,6 +281,8 @@ std::string ReadDeviceInstanceId(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfo
 // --------------------------------------------------------------------------
 std::string ReadDeviceInterfaceDetails(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, PSP_DEVICE_INTERFACE_DATA pDeviceInterfaceData)
 {
+	DebugLog(std::string("ReadDeviceInterfaceDetails: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)));
+
 	PSP_DEVICE_INTERFACE_DETAIL_DATA pInterfaceDetailData = NULL;
 	DWORD size = 0;
 	while (!SetupDiGetDeviceInterfaceDetail(hDevInfo, pDeviceInterfaceData, NULL, size, &size, pDeviceInfoData))
@@ -325,6 +329,8 @@ std::string ReadDeviceInterfaceDetails(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDevi
 // --------------------------------------------------------------------------
 bool ScanBLEInterfaces()
 {
+	DebugLog("ScanBLEInterfaces");
+
 	HDEVINFO hDevInfo;
 	SP_DEVINFO_DATA DeviceInfoData;
 	DWORD i;
@@ -523,6 +529,8 @@ void notifyAllConnected()
 // --------------------------------------------------------------------------
 bool GetGATTService(HANDLE serviceHandle, BTH_LE_GATT_SERVICE& outService)
 {
+	DebugLog("GetGATTService");
+
 	// Get GATT service
 	PBTH_LE_GATT_SERVICE services = nullptr;
 	USHORT serviceCount = 0;
@@ -559,6 +567,8 @@ bool GetGATTService(HANDLE serviceHandle, BTH_LE_GATT_SERVICE& outService)
 // --------------------------------------------------------------------------
 std::vector<BTH_LE_GATT_CHARACTERISTIC> GetGATTCharacteristics(HANDLE serviceHandle, BTH_LE_GATT_SERVICE& gattService)
 {
+	DebugLog("GetGATTCharacteristics");
+
 	std::vector<BTH_LE_GATT_CHARACTERISTIC> ret;
 	PBTH_LE_GATT_CHARACTERISTIC characteristicsBuffer = nullptr;
 	USHORT characteristicCount = 0;
@@ -587,6 +597,8 @@ std::vector<BTH_LE_GATT_CHARACTERISTIC> GetGATTCharacteristics(HANDLE serviceHan
 // --------------------------------------------------------------------------
 PBTH_LE_GATT_CHARACTERISTIC_VALUE AllocAndReadCharacteristic(HANDLE serviceHandle, BTH_LE_GATT_CHARACTERISTIC* currGattChar)
 {
+	DebugLog(std::string("AllocAndReadCharacteristic: ").append(BLEUtils::BTHLEGUIDToString(currGattChar->CharacteristicUuid)));
+
 	PBTH_LE_GATT_CHARACTERISTIC_VALUE pCharValueBuffer = nullptr;
 	
 	if (currGattChar->IsReadable)
@@ -634,6 +646,8 @@ PBTH_LE_GATT_CHARACTERISTIC_VALUE AllocAndReadCharacteristic(HANDLE serviceHandl
 // --------------------------------------------------------------------------
 bool DisconnectServicesForDevice(GUID addressGUID)
 {
+	DebugLog(std::string("DisconnectServicesForDevice: ").append(BLEUtils::GUIDToString(addressGUID)));
+
 	bool disconnectedService = false;
 	for (auto servIt = connectedServices.begin(); servIt != connectedServices.end();)
 	{
@@ -704,6 +718,8 @@ bool DisconnectServicesForDevice(GUID addressGUID)
 // --------------------------------------------------------------------------
 std::vector<BTH_LE_GATT_DESCRIPTOR> GetGATTDescriptors(HANDLE serviceHandle, PBTH_LE_GATT_CHARACTERISTIC characteristic)
 {
+	DebugLog(std::string("GetGATTDescriptors: ").append(BLEUtils::BTHLEGUIDToString(characteristic->CharacteristicUuid)));
+
 	std::vector<BTH_LE_GATT_DESCRIPTOR> ret;
 	PBTH_LE_GATT_DESCRIPTOR descriptorsBuffer = nullptr;
 	USHORT descriptorsCount = 0;
@@ -732,6 +748,8 @@ std::vector<BTH_LE_GATT_DESCRIPTOR> GetGATTDescriptors(HANDLE serviceHandle, PBT
 // --------------------------------------------------------------------------
 PBTH_LE_GATT_DESCRIPTOR_VALUE AllocAndReadDescriptor(HANDLE serviceHandle, PBTH_LE_GATT_DESCRIPTOR descriptor)
 {
+	DebugLog(std::string("AllocAndReadDescriptor: ").append(BLEUtils::BTHLEGUIDToString(descriptor->DescriptorUuid)));
+
 	// Determine Characteristic Value Buffer Size
 	USHORT descValueDataSize = 0;
 	PBTH_LE_GATT_DESCRIPTOR_VALUE pDescValueBuffer = nullptr;
@@ -788,8 +806,9 @@ void _winBluetoothLEInitialize(bool asCentral, bool asPeripheral)
 // --------------------------------------------------------------------------
 void _winBluetoothLEDeInitialize()
 {
-	_winBluetoothLEDisconnectAll();
 	LogToFile("DeInitialized");
+
+	_winBluetoothLEDisconnectAll();
 	if (sendMessageCallback != NULL)
 	{
 		sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", "DeInitialized");
@@ -829,6 +848,8 @@ void _winBluetoothLEScanForPeripheralsWithServices(const char* serviceUUIDsStrin
 	// Retrieve the devices with proper service UUID
 	if (serviceUUIDsString != nullptr)
 	{
+		DebugLog(std::string("_winBluetoothLEScanForPeripheralsWithServices: ").append(serviceUUIDsString));
+
 		auto uuids = BLEUtils::GenerateGUIDList(serviceUUIDsString);
 		notifyDevicesWithServices(uuids);
 	}
@@ -845,6 +866,8 @@ void _winBluetoothLERetrieveListOfPeripheralsWithServices(const char* serviceUUI
 {
 	if (serviceUUIDsString != nullptr)
 	{
+		DebugLog(std::string("_winBluetoothLERetrieveListOfPeripheralsWithServices: ").append(serviceUUIDsString));
+
 		auto uuids = BLEUtils::GenerateGUIDList(serviceUUIDsString);
 		notifyConnectedServices(uuids);
 	}
@@ -869,6 +892,8 @@ void _winBluetoothLEConnectToPeripheral(const char* address)
 {
 	if (address != nullptr)
 	{
+		DebugLog(std::string("_winBluetoothLEConnectToPeripheral: ").append(address));
+
 		// Iterate all the services for the given device
 		bool firstService = true;
 		GUID addressGUID = BLEUtils::StringToGUID(address);
@@ -963,6 +988,8 @@ void _winBluetoothLEDisconnectPeripheral(const char* address)
 {
 	if (address != nullptr)
 	{
+		DebugLog(std::string("_winBluetoothLEDisconnectPeripheral: ").append(address));
+
 		// Disconnect all services associated with this device
 		GUID addressGUID = BLEUtils::StringToGUID(address);
 		if (DisconnectServicesForDevice(addressGUID))
@@ -1001,6 +1028,8 @@ void _winBluetoothLEReadCharacteristic(const char* address, const char* service,
 		SendError("Null characteristic");
 		return;
 	}
+
+	DebugLog(std::string("_winBluetoothLEReadCharacteristic: ").append(address).append(", ").append(service).append(", ").append(characteristic));
 
 	// Find connected service handle
 	GUID addressGUID = BLEUtils::StringToGUID(address);
@@ -1070,6 +1099,8 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 		return;
 	}
 
+	DebugLog(std::string("_winBluetoothLEWriteCharacteristic: ").append(address).append(", ").append(service).append(", ").append(characteristic).append(", length=").append(std::to_string(length)));
+
 	// Find connected service handle
 	GUID addressGUID = BLEUtils::StringToGUID(address);
 	BTH_LE_UUID serviceGUID = BLEUtils::StringToBTHLEUUID(service);
@@ -1128,12 +1159,10 @@ void CALLBACK HandleBLENotification(BTH_LE_GATT_EVENT_TYPE EventType, PVOID Even
 {
 	PBLUETOOTH_GATT_VALUE_CHANGED_EVENT ValueChangedEventParameters = (PBLUETOOTH_GATT_VALUE_CHANGED_EVENT)EventOutParameter;
 
-
 	//// Notify that we got characteristic info
 	//std::string wroteCharacteristicMessage = "DidWriteCharacteristic~";
 	//wroteCharacteristicMessage.append(characteristic);
 	//SendBluetoothMessage(wroteCharacteristicMessage);
-
 
 	// Find the characteristic
 	auto charInfo = (BLERegisteredCharacteristicInfo*)Context;
@@ -1178,6 +1207,8 @@ void _winBluetoothLESubscribeCharacteristic(const char* address, const char* ser
 		SendError("Null characteristic");
 		return;
 	}
+
+	DebugLog(std::string("_winBluetoothLESubscribeCharacteristic: ").append(address).append(", ").append(service).append(", ").append(characteristic));
 
 	// Find connected service handle
 	GUID addressGUID = BLEUtils::StringToGUID(address);
@@ -1298,6 +1329,8 @@ void _winBluetoothLEUnSubscribeCharacteristic(const char* address, const char* s
 		return;
 	}
 
+	DebugLog(std::string("_winBluetoothLEUnSubscribeCharacteristic: ").append(address).append(", ").append(service).append(", ").append(characteristic));
+
 	// Find registered characteristic!
 	GUID addressGUID = BLEUtils::StringToGUID(address);
 	BTH_LE_UUID serviceGUID = BLEUtils::StringToBTHLEUUID(service);
@@ -1348,6 +1381,8 @@ void _winBluetoothLEUnSubscribeCharacteristic(const char* address, const char* s
 // --------------------------------------------------------------------------
 void _winBluetoothLEDisconnectAll()
 {
+	DebugLog("_winBluetoothLEDisconnectAll");
+
 	// Disconnect from devices if needed!
 	for (auto device : devices)
 	{

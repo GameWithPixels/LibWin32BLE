@@ -1077,33 +1077,38 @@ void _winBluetoothLEReadCharacteristic(const char* address, const char* service,
 // --------------------------------------------------------------------------
 // Writes a characteristic to a device/service
 // --------------------------------------------------------------------------
-void _winBluetoothLEWriteCharacteristic(const char* address, const char* service, const char* characteristic, const unsigned char* data, int length, bool withResponse)
+bool _winBluetoothLEWriteCharacteristic(const char* address, const char* service, const char* characteristic, const unsigned char* data, int length, bool withResponse)
 {
 	if (address == nullptr)
 	{
 		SendError("Null address");
-		return;
+		return false;
 	}
 
 	if (service == nullptr)
 	{
 		SendError("Null service");
-		return;
+		return false;
 	}
 
 	if (characteristic == nullptr)
 	{
 		SendError("Null characteristic");
-		return;
+		return false;
 	}
 
 	if (data == nullptr)
 	{
 		SendError("Null data");
-		return;
+		return false;
 	}
 
-	DebugLog(std::string("_winBluetoothLEWriteCharacteristic: ").append(address).append(", ").append(service).append(", ").append(characteristic).append(", length=").append(std::to_string(length)));
+	std::string msg{ "_winBluetoothLEWriteCharacteristic: " };
+	msg.append(address).append(", ").append(service).append(", ").append(characteristic);
+	if (length > 0) msg.append(", data[0]=").append(std::to_string((int)data[0]));
+		DebugLog(msg.append(", length=").append(std::to_string(length)));
+
+	bool success = false;
 
 	// Find connected service handle
 	GUID addressGUID = BLEUtils::StringToGUID(address);
@@ -1131,7 +1136,11 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 				if (withResponse)
 					BLUETOOTH_GATT_FLAG_WRITE_WITHOUT_RESPONSE;
 				HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, flags);
-				if (hr != S_OK)
+				if (hr == S_OK)
+				{
+					success = true;
+				}
+				else
 				{
 					_com_error err(hr);
 					SendError(std::string("Could not fetch characteristic value for ").append(characteristic).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
@@ -1154,6 +1163,8 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 	{
 		SendError(std::string("Could not find device ").append(address).append(" to write to."));
 	}
+
+	return success;
 }
 
 // --------------------------------------------------------------------------

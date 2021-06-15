@@ -24,7 +24,7 @@ extern "C"
     void UNITY_INTERFACE_EXPORT _winBluetoothLEConnectToPeripheral(const char* name);
     void UNITY_INTERFACE_EXPORT _winBluetoothLEDisconnectPeripheral(const char* name);
     void UNITY_INTERFACE_EXPORT _winBluetoothLEReadCharacteristic(const char* name, const char* service, const char* characteristic);
-    void UNITY_INTERFACE_EXPORT _winBluetoothLEWriteCharacteristic(const char* name, const char* service, const char* characteristic, const unsigned char* data, int length, bool withResponse);
+    bool UNITY_INTERFACE_EXPORT _winBluetoothLEWriteCharacteristic(const char* name, const char* service, const char* characteristic, const unsigned char* data, int length, bool withResponse);
     void UNITY_INTERFACE_EXPORT _winBluetoothLESubscribeCharacteristic(const char* name, const char* service, const char* characteristic);
     void UNITY_INTERFACE_EXPORT _winBluetoothLEUnSubscribeCharacteristic(const char* name, const char* service, const char* characteristic);
     void UNITY_INTERFACE_EXPORT _winBluetoothLEDisconnectAll();

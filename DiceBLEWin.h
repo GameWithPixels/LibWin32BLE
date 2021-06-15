@@ -1,8 +1,12 @@
 #pragma once
 #include <windows.h>
+#include <cstdint>		// std::uint32_t, std::int64_t
 #include "IUnityInterface.h"
 
-typedef void(*DebugCallback)(const char* message);
+using timestamp_us_t = std::int64_t; // Micro-seconds since epoch
+using thread_id_t = std::uint32_t;
+
+typedef void(*DebugCallback)(timestamp_us_t timestamp, thread_id_t threadId, const char* message);
 typedef void(*SendBluetoothMessageCallback)(const char* objectName, const char* methodName, const char* message);
 
 extern "C"

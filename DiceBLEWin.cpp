@@ -21,9 +21,12 @@
 #include <locale>
 #include <array>
 #include <vector>
-#include <algorithm>    // std::find_if
+#include <algorithm>	// std::find_if
 #include <regex>
-#include <mutex>          // std::mutex, std::unique_lock, std::defer_lock
+#include <mutex>		// std::mutex, std::unique_lock, std::defer_lock
+#include <thread>		// std::this_thread::get_id
+#include <ctime>		// std::gmtime
+#include <chrono>		// std::system_clock
 
 #pragma comment(lib, "SetupAPI")
 #pragma comment(lib, "BluetoothApis.lib")
@@ -102,8 +105,25 @@ enum class QueuedMessageType
 
 struct QueuedMessage
 {
-	QueuedMessageType messageType;
-	std::string message;
+	QueuedMessage(const QueuedMessageType& messageType, const std::string& message)
+		: _messageType{ messageType }
+		, _message{ message }
+		, _threadId{ GetCurrentThreadId() }
+		, _timestamp{ std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::system_clock::now().time_since_epoch()
+			).count() }
+	{}
+
+	QueuedMessageType messageType() const { return _messageType; }
+	const std::string& message() const { return _message; }
+	thread_id_t threadId() const { return _threadId; }
+	timestamp_us_t timestamp() const { return _timestamp; }
+
+private:
+	QueuedMessageType _messageType;
+	std::string _message;
+	thread_id_t _threadId;
+	timestamp_us_t _timestamp;
 };
 
 std::vector<QueuedMessage> messages;
@@ -112,53 +132,37 @@ std::mutex messageMutex;           // mutex for critical section
 // --------------------------------------------------------------------------
 // Talks back to the mono side of things!
 // --------------------------------------------------------------------------
-void SendBluetoothMessage(const char* message)
-{
-	const std::lock_guard<std::mutex> lock{ messageMutex };
-	messages.push_back({ QueuedMessageType::Message, std::string(message) });
-}
 inline void SendBluetoothMessage(const std::string& message)
 {
-	SendBluetoothMessage(message.data());
+	const std::lock_guard<std::mutex> lock{ messageMutex };
+	messages.push_back({ QueuedMessageType::Message, message });
 }
 
 // --------------------------------------------------------------------------
 // Sends a log to the mono side of things
 // --------------------------------------------------------------------------
-void DebugLog(const char* message)
-{
-	const std::lock_guard<std::mutex> lock{ messageMutex };
-	messages.push_back({ QueuedMessageType::Log, std::string(message) });
-}
 inline void DebugLog(const std::string& message)
 {
-	DebugLog(message.data());
+	const std::lock_guard<std::mutex> lock{ messageMutex };
+	messages.push_back({ QueuedMessageType::Log, message });
 }
 
 // --------------------------------------------------------------------------
 // Sends a log to the mono side of things
 // --------------------------------------------------------------------------
-void DebugWarning(const char* message)
-{
-	const std::lock_guard<std::mutex> lock{ messageMutex };
-	messages.push_back({ QueuedMessageType::Warning, std::string(message) });
-}
 inline void DebugWarning(const std::string& message)
 {
-	DebugWarning(message.data());
+	const std::lock_guard<std::mutex> lock{ messageMutex };
+	messages.push_back({ QueuedMessageType::Warning, message });
 }
 
 // --------------------------------------------------------------------------
 // Sends a log to the mono side of things
 // --------------------------------------------------------------------------
-void DebugError(const char* message)
-{
-	const std::lock_guard<std::mutex> lock{ messageMutex };
-	messages.push_back({ QueuedMessageType::Error, std::string(message) });
-}
 inline void DebugError(const std::string& message)
 {
-	DebugError(message.data());
+	const std::lock_guard<std::mutex> lock{ messageMutex };
+	messages.push_back({ QueuedMessageType::Error, message });
 }
 
 // --------------------------------------------------------------------------
@@ -1443,35 +1447,36 @@ void _winBluetoothLEUpdate()
 	std::vector<QueuedMessage> msgCopy{ std::move(messages) };
 	messageMutex.unlock();
 
-	for (auto& msg : msgCopy) {
-		switch (msg.messageType)
+	for (auto& msg : msgCopy)
+	{
+		switch (msg.messageType())
 		{
 		case QueuedMessageType::Message:
-			LogToFile("Message> " + msg.message);
+			LogToFile("Message> " + msg.message());
 			if (sendMessageCallback != nullptr)
 			{
-				sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", msg.message.data());
+				sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", msg.message().data());
 			}
 			break;
 		case QueuedMessageType::Log:
-			LogToFile("Log> " + msg.message);
+			LogToFile("Log> " + msg.message());
 			if (debugLogCallback != nullptr)
 			{
-				debugLogCallback(msg.message.data());
+				debugLogCallback(msg.timestamp(), msg.threadId(), msg.message().data());
 			}
 			break;
 		case QueuedMessageType::Warning:
-			LogToFile("Warning> " + msg.message);
+			LogToFile("Warning> " + msg.message());
 			if (debugWarningCallback != nullptr)
 			{
-				debugWarningCallback(msg.message.data());
+				debugWarningCallback(msg.timestamp(), msg.threadId(), msg.message().data());
 			}
 			break;
 		case QueuedMessageType::Error:
-			LogToFile("Error> " + msg.message);
+			LogToFile("Error> " + msg.message());
 			if (debugErrorCallback != nullptr)
 			{
-				debugErrorCallback(msg.message.data());
+				debugErrorCallback(msg.timestamp(), msg.threadId(), msg.message().data());
 			}
 			break;
 		}

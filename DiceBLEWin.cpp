@@ -815,7 +815,7 @@ void _winBluetoothLEDeInitialize()
 	_winBluetoothLEDisconnectAll();
 	if (sendMessageCallback != NULL)
 	{
-		sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", "DeInitialized");
+		sendMessageCallback("DeInitialized");
 	}
 
 	devices.clear();
@@ -838,7 +838,7 @@ void _winBluetoothLEPauseMessages(bool isPaused)
 // --------------------------------------------------------------------------
 // Scans all the bluetooth devices and notifies the mono side
 // --------------------------------------------------------------------------
-void _winBluetoothLEScanForPeripheralsWithServices(const char* serviceUUIDsString, bool allowDuplicates, bool rssiOnly, bool clearPeripheralList)
+void _winBluetoothLEScanForPeripheralsWithServices(const char* serviceUUIDsString)
 {
 	// Devices are managed by windows, so we don't need to 'remember' old devices
 	//devices.clear();
@@ -1077,38 +1077,32 @@ void _winBluetoothLEReadCharacteristic(const char* address, const char* service,
 // --------------------------------------------------------------------------
 // Writes a characteristic to a device/service
 // --------------------------------------------------------------------------
-bool _winBluetoothLEWriteCharacteristic(const char* address, const char* service, const char* characteristic, const unsigned char* data, int length, bool withResponse)
+void _winBluetoothLEWriteCharacteristic(const char* address, const char* service, const char* characteristic, const unsigned char* data, int length, bool withResponse)
 {
 	if (address == nullptr)
 	{
 		SendError("Null address");
-		return false;
 	}
 
 	if (service == nullptr)
 	{
 		SendError("Null service");
-		return false;
 	}
 
 	if (characteristic == nullptr)
 	{
 		SendError("Null characteristic");
-		return false;
 	}
 
 	if (data == nullptr)
 	{
 		SendError("Null data");
-		return false;
 	}
 
 	std::string msg{ "_winBluetoothLEWriteCharacteristic: " };
 	msg.append(address).append(", ").append(service).append(", ").append(characteristic);
 	if (length > 0) msg.append(", data[0]=").append(std::to_string((int)data[0]));
 		DebugLog(msg.append(", length=").append(std::to_string(length)));
-
-	bool success = false;
 
 	// Find connected service handle
 	GUID addressGUID = BLEUtils::StringToGUID(address);
@@ -1132,13 +1126,13 @@ bool _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 				newCharVal->DataSize = length;
 				memcpy(newCharVal->Data, data, length);
 
-				ULONG flags = BLUETOOTH_GATT_FLAG_NONE;
-				if (withResponse)
-					BLUETOOTH_GATT_FLAG_WRITE_WITHOUT_RESPONSE;
-				HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, flags);
+				HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, 0);
 				if (hr == S_OK)
 				{
-					success = true;
+					// Notify that the write was successful
+					std::string writeCharacteristicMessage = "DidWriteCharacteristic~";
+					writeCharacteristicMessage.append(characteristic);
+					SendBluetoothMessage(writeCharacteristicMessage);
 				}
 				else
 				{
@@ -1163,8 +1157,6 @@ bool _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 	{
 		SendError(std::string("Could not find device ").append(address).append(" to write to."));
 	}
-
-	return success;
 }
 
 // --------------------------------------------------------------------------
@@ -1466,7 +1458,7 @@ void _winBluetoothLEUpdate()
 			LogToFile("Message> " + msg.message());
 			if (sendMessageCallback != nullptr)
 			{
-				sendMessageCallback("BluetoothLEReceiver", "OnBluetoothMessage", msg.message().data());
+				sendMessageCallback(msg.message().data());
 			}
 			break;
 		case QueuedMessageType::Log:

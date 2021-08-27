@@ -213,7 +213,7 @@ void _winBluetoothLEDisconnectCallbacks()
 // --------------------------------------------------------------------------
 std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DWORD property)
 {
-	DebugLog(std::string("ReadProperty: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)).append(", ").append(std::to_string(property)));
+	//DebugLog(std::string("ReadProperty: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)).append(", ").append(std::to_string(property)));
 
 	DWORD regDataType;
 	LPTSTR buffer = nullptr;
@@ -251,7 +251,7 @@ std::string ReadProperty(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData, DW
 // --------------------------------------------------------------------------
 std::string ReadDeviceInstanceId(HDEVINFO hDevInfo, PSP_DEVINFO_DATA pDeviceInfoData)
 {
-	DebugLog(std::string("ReadDeviceInstanceId: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)));
+	//DebugLog(std::string("ReadDeviceInstanceId: ").append(BLEUtils::GUIDToString(pDeviceInfoData->ClassGuid)));
 
 	LPTSTR deviceIdBuffer = nullptr;
 	DWORD deviceIdBufferSize = 0;

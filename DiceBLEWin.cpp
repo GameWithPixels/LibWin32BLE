@@ -1126,7 +1126,8 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 				newCharVal->DataSize = length;
 				memcpy(newCharVal->Data, data, length);
 
-				HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, 0);
+				ULONG flags = withResponse ? BLUETOOTH_GATT_FLAG_NONE : BLUETOOTH_GATT_FLAG_WRITE_WITHOUT_RESPONSE;
+				HRESULT hr = BluetoothGATTSetCharacteristicValue(cservice->deviceHandle, &(*charIt), newCharVal, NULL, withResponse);
 				if (hr == S_OK)
 				{
 					// Notify that the write was successful
@@ -1137,7 +1138,7 @@ void _winBluetoothLEWriteCharacteristic(const char* address, const char* service
 				else
 				{
 					_com_error err(hr);
-					SendError(std::string("Could not fetch characteristic value for ").append(characteristic).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
+					SendError(std::string("Could not write characteristic value for ").append(characteristic).append(" ").append(BLEUtils::ToNarrow(err.ErrorMessage())));
 				}
 
 				// Clean up!
